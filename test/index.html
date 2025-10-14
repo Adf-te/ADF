@@ -1,82 +1,113 @@
 <!doctype html>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Accès requis</title>
-<style>
-  body { font-family: system-ui, sans-serif; max-width: 520px; margin: 10vh auto; padding: 0 16px; }
-  form { display: grid; gap: 12px; }
-  input[type=password] { padding: 10px; font-size: 16px; width: 100%; }
-  button { padding: 10px 14px; font-size: 16px; cursor: pointer; }
-  .hint { color: #666; font-size: 14px; }
-  .err { color: #b00020; }
-</style>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Accès requis</title>
 
-<h1>Accès</h1>
-<p class="hint">Entrez le mot de passe pour continuer.</p>
+  <!-- Empêcher le navigateur de mettre la page en cache -->
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+  <meta http-equiv="Pragma" content="no-cache">
+  <meta http-equiv="Expires" content="0">
 
-<form id="f" autocomplete="off">
-  <label>Mot de passe
-    <input id="pwd" type="password" inputmode="text" autocomplete="current-password" required autofocus>
-  </label>
-  <label><input type="checkbox" id="remember"> Mémoriser sur cet appareil</label>
-  <button type="submit">Entrer</button>
-  <p id="msg" class="err" role="status" aria-live="polite"></p>
-</form>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 520px; margin: 10vh auto; padding: 0 16px; }
+    form { display: grid; gap: 12px; }
+    input[type=password] { padding: 10px; font-size: 16px; width: 100%; }
+    button { padding: 10px 14px; font-size: 16px; cursor: pointer; }
+    .hint { color: #666; font-size: 14px; }
+    .err { color: #b00020; }
+  </style>
+</head>
+<body>
+  <h1>Accès</h1>
+  <p class="hint">Entrez le mot de passe pour continuer.</p>
 
-<script>
-  // 1) ADAPTE CES DEUX CONSTANTES:
-  const DESTINATION_URL = "https://www.kaercher.com/fr/"; // <- la vraie destination
-  const HASH_HEX = "6b86b273ff34fce19d6b804eff5a3f5747ada4eaa22f1d49c01e52ddb7875b4b";            // <- le hash de ton mot de passe
+  <form id="f" autocomplete="off">
+    <label>Mot de passe
+      <input id="pwd" type="password" inputmode="text" autocomplete="current-password" required autofocus>
+    </label>
+    <label><input type="checkbox" id="remember"> Mémoriser sur cet appareil</label>
+    <button type="submit">Entrer</button>
+    <p id="msg" class="err" role="status" aria-live="polite"></p>
+  </form>
 
-  // 2) Option: limite brute-force très simple
-  const PATH = location.pathname; // clé par dossier
-  const okSessionKey = "ok:" + PATH;            // sessionStorage = expire à la fermeture
-  const okPersistentKey = "ok-global";          // localStorage = "se souvenir de moi"
-  const triesKey = "tries:" + PATH;
-  const lockKey = "lock-until:" + PATH;
+  <script>
+    // 1) ADAPTE CES DEUX CONSTANTES:
+    const DESTINATION_URL = "https://www.kaercher.com/fr/"; // <- la vraie destination
+    const HASH_HEX = "6b86b273ff34fce19d6b804eff5a3f5747ada4eaa22f1d49c01e52ddb7875b4b"; // <- hash SHA-256
 
-  if (localStorage.getItem(okPersistentKey) || sessionStorage.getItem(okSessionKey)) {
-    location.replace(DESTINATION_URL);
-  }
+    // Clés de stockage (par dossier)
+    const PATH = location.pathname; // clé par dossier
+    const okSessionKey = "ok:" + PATH;            // sessionStorage = expire à la fermeture
+    const okPersistentKey = "ok-global";          // localStorage = "se souvenir de moi"
+    const triesKey = "tries:" + PATH;
+    const lockKey = "lock-until:" + PATH;
 
-  async function sha256Hex(text) {
-    const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
-    return [...new Uint8Array(buf)].map(b => b.toString(16).padStart(2, "0")).join("");
-  }
-
-  const form = document.getElementById("f");
-  const msg = document.getElementById("msg");
-
-  form.addEventListener("submit", async (e) => {
-    e.preventDefault();
-    msg.textContent = "";
-    const now = Date.now();
-    const lockUntil = parseInt(sessionStorage.getItem(lockKey) || "0", 10);
-    if (now < lockUntil) {
-      msg.textContent = "Trop d'essais. Réessayez dans quelques secondes.";
-      return;
+    // Helper : retourne une URL unique en ajoutant un paramètre timestamp pour forcer le fetch
+    function makeCacheBustedUrl(url) {
+      const sep = url.includes('?') ? '&' : '?';
+      return url + sep + 'v=' + Date.now();
     }
 
-    const pwd = document.getElementById("pwd").value;
-    const remember = document.getElementById("remember").checked;
+    // Si déjà validé → rediriger immédiatement vers la destination,
+    // en ajoutant un cache-buster pour forcer un nouveau chargement côté client
+    if (localStorage.getItem(okPersistentKey) || sessionStorage.getItem(okSessionKey)) {
+      // Remplace la page sans possibilité de revenir
+      location.replace(makeCacheBustedUrl(DESTINATION_URL));
+    }
 
-    const hash = await sha256Hex(pwd);
-    if (hash === HASH_HEX) {
-      (remember ? localStorage : sessionStorage)
-        .setItem(remember ? okPersistentKey : okSessionKey, "1");
-      sessionStorage.removeItem(triesKey);
-      sessionStorage.removeItem(lockKey);
-      location.replace(DESTINATION_URL);
-    } else {
-      const tries = 1 + parseInt(sessionStorage.getItem(triesKey) || "0", 10);
-      sessionStorage.setItem(triesKey, String(tries));
-      if (tries >= 5) {
-        sessionStorage.setItem(lockKey, String(now + 30_000)); // blocage 30 s
-        sessionStorage.setItem(triesKey, "0");
-        msg.textContent = "Mot de passe incorrect. Verrouillage 30 s.";
-      } else {
-        msg.textContent = "Mot de passe incorrect.";
+    async function sha256Hex(text) {
+      const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
+      return [...new Uint8Array(buf)].map(b => b.toString(16).padStart(2, "0")).join("");
+    }
+
+    const form = document.getElementById("f");
+    const msg = document.getElementById("msg");
+
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      msg.textContent = "";
+      const now = Date.now();
+      const lockUntil = parseInt(sessionStorage.getItem(lockKey) || "0", 10);
+      if (now < lockUntil) {
+        msg.textContent = "Trop d'essais. Réessayez dans quelques secondes.";
+        return;
       }
-    }
-  });
-</script>
+
+      const pwd = document.getElementById("pwd").value;
+      const remember = document.getElementById("remember").checked;
+
+      const hash = await sha256Hex(pwd);
+      if (hash === HASH_HEX) {
+        (remember ? localStorage : sessionStorage)
+          .setItem(remember ? okPersistentKey : okSessionKey, "1");
+        sessionStorage.removeItem(triesKey);
+        sessionStorage.removeItem(lockKey);
+
+        // Redirection finale : ajoute un param unique pour forcer le rechargement à l'ouverture
+        location.replace(makeCacheBustedUrl(DESTINATION_URL));
+      } else {
+        const tries = 1 + parseInt(sessionStorage.getItem(triesKey) || "0", 10);
+        sessionStorage.setItem(triesKey, String(tries));
+        if (tries >= 5) {
+          sessionStorage.setItem(lockKey, String(now + 30_000)); // blocage 30 s
+          sessionStorage.setItem(triesKey, "0");
+          msg.textContent = "Mot de passe incorrect. Verrouillage 30 s.";
+        } else {
+          msg.textContent = "Mot de passe incorrect.";
+        }
+      }
+    });
+
+    // Petit bonus : empêche la page précédente (back) d'afficher une version cachée du dossier
+    // Quand l'utilisateur revient ici, on forcera une validation côté navigateur (pas serveur).
+    window.addEventListener('pageshow', (ev) => {
+      // Si la page est chargée depuis le cache de l'historique, on la recharge pour garantir la fraîcheur.
+      if (ev.persisted) {
+        location.reload(true);
+      }
+    });
+  </script>
+</body>
+</html>
