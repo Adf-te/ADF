@@ -5,6 +5,9 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>Accès requis</title>
 
+  <!-- Optionnel : incrémente ce build pour invalider toutes les mémorisations -->
+  <!-- <meta name="build" content="2025-10-14-2"> -->
+
   <!-- Anti-cache de la page -->
   <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
   <meta http-equiv="Pragma" content="no-cache">
@@ -32,7 +35,7 @@
     <img
       id="hero"
       class="hero"
-      src="assets/visuel.jpeg"
+      src="assets/visuel.jpg"
       alt="Visuel de présentation"
       referrerpolicy="no-referrer"
       loading="lazy">
@@ -58,41 +61,53 @@
     <p id="msg" class="err" role="status" aria-live="polite"></p>
   </form>
 
-  <!-- Lecteur audio caché (avec contrôles via JS) -->
+  <!-- Lecteur audio -->
   <audio id="bgm" preload="auto" loop playsinline>
     <source src="assets/musique.mp3" type="audio/mpeg">
-    <!-- Ajoute d'autres formats si tu veux: OGG, WAV -->
   </audio>
 
   <script>
     // ========= PARAMÈTRES À ADAPTER =========
-    const DESTINATION_URL = "https://chatgpt.com/"; // <- ta destination
+    const DESTINATION_URL = "https://ateliersdefrance.com/metiers/adf-ensemblier-savoir-faire/"; // destination finale
     const HASH_HEX = "6b86b273ff34fce19d6b804eff5a3f5747ada4eaa22f1d49c01e52ddb7875b4b"; // hash SHA-256 du mot de passe
-    const VERSION_TOKEN = "2025-10-14-2"; // incrémente quand tu veux forcer un refresh global
-    // Si tes fichiers image/son changent, le cache-buster les actualise aussi :
-    const MEDIA_BUST = VERSION_TOKEN + "-" + Date.now();
+    const REMEMBER_KEY = "ok-global";
+    const CODE_VERSION_KEY = "code-version"; // stocke la version du fichier pour reset auto
 
-    // ========= ANTI-CACHE PAGE =========
-    sessionStorage.clear(); // on garde la session propre (n'efface pas le "mémoriser")
+    // ========= RÉINITIALISATION "MÉMORISER" SI LE CODE A CHANGÉ =========
+    const metaBuild = document.querySelector('meta[name="build"]')?.content;
+    const CODE_VERSION = metaBuild || document.lastModified;
+    const prevVersion = localStorage.getItem(CODE_VERSION_KEY);
+    if (prevVersion !== CODE_VERSION) {
+      localStorage.removeItem(REMEMBER_KEY);
+      localStorage.setItem(CODE_VERSION_KEY, CODE_VERSION);
+    }
+
+    // ========= ANTI-CACHE & SESSION CLEAN =========
+    sessionStorage.clear(); // session neuve (on ne touche pas au "remember")
     window.addEventListener('pageshow', (e) => { if (e.persisted) location.reload(true); });
     if ('caches' in window) { caches.keys().then(names => names.forEach(n => caches.delete(n))); }
 
-    // Bust visuel si besoin (force le rafraîchissement de l'image si elle a été modifiée)
+    // Force le rafraîchissement des médias si remplacés dans le dépôt
+    const MEDIA_BUST = Date.now();
     const hero = document.getElementById('hero');
     hero.src = hero.src + (hero.src.includes('?') ? '&' : '?') + 'v=' + MEDIA_BUST;
 
+    const bgm = document.getElementById('bgm');
+    const src = bgm.querySelector('source');
+    src.src = src.src + (src.src.includes('?') ? '&' : '?') + 'v=' + MEDIA_BUST;
+    bgm.load();
+
     function makeCacheBustedUrl(url) {
       const sep = url.includes('?') ? '&' : '?';
-      return url + sep + 'v=' + VERSION_TOKEN + '-' + Date.now();
+      return url + sep + 'v=' + Date.now();
     }
 
-    // ========= MÉMO : SAUTER L'ÉCRAN SI DÉJÀ VALIDÉ =========
-    const REMEMBER_KEY = "ok-global";
-    if (localStorage.getItem(REMEMBER_KEY) === "1") {
+    // ========= SAUT D'ÉCRAN SI DÉJÀ MÉMORISÉ (ET CODE INCHANGÉ) =========
+    if (localStorage.getItem(REMEMBER_KEY) === "1" && localStorage.getItem(CODE_VERSION_KEY) === CODE_VERSION) {
       location.replace(makeCacheBustedUrl(DESTINATION_URL));
     }
 
-    // ========= UTILITAIRES =========
+    // ========= OUTILS =========
     async function sha256Hex(text) {
       const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
       return [...new Uint8Array(buf)].map(b => b.toString(16).padStart(2, "0")).join("");
@@ -138,28 +153,46 @@
       }
     });
 
-    // ========= AUDIO : TENTATIVE D'AUTOPLAY + BOUTON =========
-    const bgm = document.getElementById('bgm');
+    // ========= AUDIO : AUTOPLAY MUTED + DÉVERROUILLAGE AUTO AU 1er GESTE =========
     const toggleBtn = document.getElementById('toggleAudio');
     const state = document.getElementById('audioState');
 
-    // Essaye d'autoplay (sera souvent bloqué si non muet)
-    (async () => {
+    // Politique la plus compatible : démarrer en muet automatiquement,
+    // puis retirer le mute au premier geste utilisateur (tap/clic/touche).
+    async function tryAutoplayMuted() {
       try {
-        await bgm.play();
+        bgm.muted = true;              // autorise l'autoplay sur la plupart des navigateurs
+        await bgm.play();              // tente de lancer en muet
         toggleBtn.textContent = "⏸︎ Pause";
-        state.textContent = "lecture";
+        state.textContent = "lecture (muet)";
+        // Au premier geste, on remet le son
+        const unlock = async () => {
+          try {
+            bgm.muted = false;
+            if (bgm.paused) await bgm.play();
+            state.textContent = "lecture";
+          } catch {}
+          window.removeEventListener('pointerdown', unlock);
+          window.removeEventListener('keydown', unlock);
+          window.removeEventListener('touchstart', unlock);
+        };
+        window.addEventListener('pointerdown', unlock, { once: true });
+        window.addEventListener('keydown', unlock, { once: true });
+        window.addEventListener('touchstart', unlock, { once: true });
       } catch {
-        // Autoplay bloqué, on attend un geste utilisateur
+        // Autoplay refusé: on attend un clic sur le bouton
         toggleBtn.textContent = "▶︎ Lire";
         state.textContent = "audio en veille";
       }
-    })();
+    }
+
+    tryAutoplayMuted();
 
     toggleBtn.addEventListener('click', async () => {
       try {
         if (bgm.paused) {
           await bgm.play();
+          bgm.muted = false; // si l'utilisateur a cliqué, on peut activer le son
           toggleBtn.textContent = "⏸︎ Pause";
           state.textContent = "lecture";
         } else {
