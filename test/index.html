@@ -5,23 +5,49 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>Accès requis</title>
 
-  <!-- Empêcher le navigateur de garder une version en cache -->
+  <!-- Anti-cache de la page -->
   <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
   <meta http-equiv="Pragma" content="no-cache">
   <meta http-equiv="Expires" content="0">
 
   <style>
-    body { font-family: system-ui, sans-serif; max-width: 520px; margin: 10vh auto; padding: 0 16px; }
-    form { display: grid; gap: 12px; }
+    :root { --gap: 12px; }
+    body { font-family: system-ui, sans-serif; max-width: 640px; margin: 6vh auto; padding: 0 16px; }
+    .header { display: grid; gap: var(--gap); margin-bottom: 20px; }
+    .hero { width: 100%; height: auto; border-radius: 12px; object-fit: cover; }
+    form { display: grid; gap: var(--gap); }
+    label { display: grid; gap: 6px; }
     input[type=password] { padding: 10px; font-size: 16px; width: 100%; }
-    button { padding: 10px 14px; font-size: 16px; cursor: pointer; }
+    button { padding: 10px 14px; font-size: 16px; cursor: pointer; border-radius: 8px; }
+    .toolbar { display: flex; gap: 8px; align-items: center; justify-content: space-between; }
     .hint { color: #666; font-size: 14px; }
-    .err { color: #b00020; }
+    .err  { color: #b00020; min-height: 1.2em; }
+    .audio-ctrl { display: inline-flex; gap: 8px; align-items: center; }
+    .badge { font-size: 12px; color: #555; }
   </style>
 </head>
 <body>
-  <h1>Accès</h1>
-  <p class="hint">Entrez le mot de passe pour continuer.</p>
+  <div class="header">
+    <!-- Image d'en-tête -->
+    <img
+      id="hero"
+      class="hero"
+      src="assets/visuel.jpg"
+      alt="Visuel de présentation"
+      referrerpolicy="no-referrer"
+      loading="lazy">
+    <div class="toolbar">
+      <div>
+        <h1 style="margin:0;">Accès</h1>
+        <p class="hint" style="margin:4px 0 0;">Entrez le mot de passe pour continuer.</p>
+      </div>
+      <!-- Contrôles audio -->
+      <div class="audio-ctrl">
+        <button id="toggleAudio" type="button">▶︎ Lire</button>
+        <span id="audioState" class="badge">audio en veille</span>
+      </div>
+    </div>
+  </div>
 
   <form id="f" autocomplete="off">
     <label>Mot de passe
@@ -32,54 +58,52 @@
     <p id="msg" class="err" role="status" aria-live="polite"></p>
   </form>
 
+  <!-- Lecteur audio caché (avec contrôles via JS) -->
+  <audio id="bgm" preload="auto" loop playsinline>
+    <source src="assets/musique.mp3" type="audio/mpeg">
+    <!-- Ajoute d'autres formats si tu veux: OGG, WAV -->
+  </audio>
+
   <script>
-    // 1) ADAPTE CES DEUX CONSTANTES:
-    const DESTINATION_URL = "https://ateliersdefrance.com/"; // <- la vraie destination
-    const HASH_HEX = "6b86b273ff34fce19d6b804eff5a3f5747ada4eaa22f1d49c01e52ddb7875b4b"; // <- hash SHA-256 de ton mot de passe
+    // ========= PARAMÈTRES À ADAPTER =========
+    const DESTINATION_URL = "https://chatgpt.com/"; // <- ta destination
+    const HASH_HEX = "6b86b273ff34fce19d6b804eff5a3f5747ada4eaa22f1d49c01e52ddb7875b4b"; // hash SHA-256 du mot de passe
+    const VERSION_TOKEN = "2025-10-14-2"; // incrémente quand tu veux forcer un refresh global
+    // Si tes fichiers image/son changent, le cache-buster les actualise aussi :
+    const MEDIA_BUST = VERSION_TOKEN + "-" + Date.now();
 
-    // Optionnel: incrémente ce jeton si tu veux invalider "toutes" les mémorisations un jour X
-    const VERSION_TOKEN = "2025-10-14-1";
+    // ========= ANTI-CACHE PAGE =========
+    sessionStorage.clear(); // on garde la session propre (n'efface pas le "mémoriser")
+    window.addEventListener('pageshow', (e) => { if (e.persisted) location.reload(true); });
+    if ('caches' in window) { caches.keys().then(names => names.forEach(n => caches.delete(n))); }
 
-    // ---- Anti-cache & session propre ----
-    // On vide la session à chaque chargement, mais on NE TOUCHE PAS au localStorage "ok-global"
-    sessionStorage.clear();
+    // Bust visuel si besoin (force le rafraîchissement de l'image si elle a été modifiée)
+    const hero = document.getElementById('hero');
+    hero.src = hero.src + (hero.src.includes('?') ? '&' : '?') + 'v=' + MEDIA_BUST;
 
-    // Si la page provient du cache d'historique, on force un rechargement
-    window.addEventListener('pageshow', (event) => {
-      if (event.persisted) {
-        location.reload(true);
-      }
-    });
-
-    // Nettoie le cache des PWA/WebView si dispo (n'affecte pas localStorage)
-    if ('caches' in window) {
-      caches.keys().then(names => names.forEach(n => caches.delete(n)));
-    }
-
-    // Génère une URL unique pour éviter la mise en cache de la destination
     function makeCacheBustedUrl(url) {
       const sep = url.includes('?') ? '&' : '?';
       return url + sep + 'v=' + VERSION_TOKEN + '-' + Date.now();
     }
 
-    // ---- "Mémoriser" : si déjà validé, on saute l'écran et on redirige immédiatement ----
+    // ========= MÉMO : SAUTER L'ÉCRAN SI DÉJÀ VALIDÉ =========
     const REMEMBER_KEY = "ok-global";
     if (localStorage.getItem(REMEMBER_KEY) === "1") {
       location.replace(makeCacheBustedUrl(DESTINATION_URL));
     }
 
-    // ---- Vérification du mot de passe ----
-    const PATH = location.pathname;
-    const triesKey = "tries:" + PATH;
-    const lockKey  = "lock-until:" + PATH;
-
+    // ========= UTILITAIRES =========
     async function sha256Hex(text) {
       const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
       return [...new Uint8Array(buf)].map(b => b.toString(16).padStart(2, "0")).join("");
     }
 
+    // ========= FORMULAIRE =========
     const form = document.getElementById("f");
     const msg  = document.getElementById("msg");
+    const PATH = location.pathname;
+    const triesKey = "tries:" + PATH;
+    const lockKey  = "lock-until:" + PATH;
 
     form.addEventListener("submit", async (e) => {
       e.preventDefault();
@@ -94,16 +118,12 @@
 
       const pwd = document.getElementById("pwd").value;
       const remember = document.getElementById("remember").checked;
-
       const hash = await sha256Hex(pwd);
+
       if (hash === HASH_HEX) {
         if (remember) localStorage.setItem(REMEMBER_KEY, "1");
-
-        // Nettoie les compteurs d'échecs de la session
         sessionStorage.removeItem(triesKey);
         sessionStorage.removeItem(lockKey);
-
-        // Redirection finale avec cache-buster pour garantir l'actualisation de la cible
         location.replace(makeCacheBustedUrl(DESTINATION_URL));
       } else {
         const tries = 1 + parseInt(sessionStorage.getItem(triesKey) || "0", 10);
@@ -115,6 +135,40 @@
         } else {
           msg.textContent = "Mot de passe incorrect.";
         }
+      }
+    });
+
+    // ========= AUDIO : TENTATIVE D'AUTOPLAY + BOUTON =========
+    const bgm = document.getElementById('bgm');
+    const toggleBtn = document.getElementById('toggleAudio');
+    const state = document.getElementById('audioState');
+
+    // Essaye d'autoplay (sera souvent bloqué si non muet)
+    (async () => {
+      try {
+        await bgm.play();
+        toggleBtn.textContent = "⏸︎ Pause";
+        state.textContent = "lecture";
+      } catch {
+        // Autoplay bloqué, on attend un geste utilisateur
+        toggleBtn.textContent = "▶︎ Lire";
+        state.textContent = "audio en veille";
+      }
+    })();
+
+    toggleBtn.addEventListener('click', async () => {
+      try {
+        if (bgm.paused) {
+          await bgm.play();
+          toggleBtn.textContent = "⏸︎ Pause";
+          state.textContent = "lecture";
+        } else {
+          bgm.pause();
+          toggleBtn.textContent = "▶︎ Lire";
+          state.textContent = "en pause";
+        }
+      } catch {
+        state.textContent = "lecture impossible (politique d'autoplay)";
       }
     });
   </script>
