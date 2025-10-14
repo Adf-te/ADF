@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>Accès requis</title>
 
-  <!-- Empêcher le navigateur de mettre la page en cache -->
+  <!-- Empêcher le navigateur de garder une version en cache -->
   <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
   <meta http-equiv="Pragma" content="no-cache">
   <meta http-equiv="Expires" content="0">
@@ -34,28 +34,36 @@
 
   <script>
     // 1) ADAPTE CES DEUX CONSTANTES:
-    const DESTINATION_URL = "https://www.youtube.com/watch?v=3QyBh1h7Wms&t=21s"; // <- la vraie destination
-    const HASH_HEX = "6b86b273ff34fce19d6b804eff5a3f5747ada4eaa22f1d49c01e52ddb7875b4b"; // <- hash SHA-256
+    const DESTINATION_URL = "https://chatgpt.com/"; // <- la vraie destination
+    const HASH_HEX = "6b86b273ff34fce19d6b804eff5a3f5747ada4eaa22f1d49c01e52ddb7875b4b"; // <- hash SHA-256 de ton mot de passe
 
-    // Clés de stockage (par dossier)
-    const PATH = location.pathname; // clé par dossier
-    const okSessionKey = "ok:" + PATH;            // sessionStorage = expire à la fermeture
-    const okPersistentKey = "ok-global";          // localStorage = "se souvenir de moi"
-    const triesKey = "tries:" + PATH;
-    const lockKey = "lock-until:" + PATH;
+    // 2) Empêche le navigateur de "mémoriser" les sessions précédentes
+    sessionStorage.clear();
+    localStorage.removeItem("ok-global");
 
-    // Helper : retourne une URL unique en ajoutant un paramètre timestamp pour forcer le fetch
+    // 3) Si la page provient du cache de l’historique, recharge-la
+    window.addEventListener('pageshow', (event) => {
+      if (event.persisted) {
+        location.reload(true);
+      }
+    });
+
+    // 4) Supprime tout cache enregistré côté navigateur (si API dispo)
+    if ('caches' in window) {
+      caches.keys().then(names => names.forEach(n => caches.delete(n)));
+    }
+
+    // 5) Génère une URL unique pour éviter la mise en cache
     function makeCacheBustedUrl(url) {
       const sep = url.includes('?') ? '&' : '?';
       return url + sep + 'v=' + Date.now();
     }
 
-    // Si déjà validé → rediriger immédiatement vers la destination,
-    // en ajoutant un cache-buster pour forcer un nouveau chargement côté client
-    if (localStorage.getItem(okPersistentKey) || sessionStorage.getItem(okSessionKey)) {
-      // Remplace la page sans possibilité de revenir
-      location.replace(makeCacheBustedUrl(DESTINATION_URL));
-    }
+    // 6) Gestion de la vérification du mot de passe
+    const PATH = location.pathname;
+    const okSessionKey = "ok:" + PATH;
+    const triesKey = "tries:" + PATH;
+    const lockKey = "lock-until:" + PATH;
 
     async function sha256Hex(text) {
       const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
@@ -80,12 +88,12 @@
 
       const hash = await sha256Hex(pwd);
       if (hash === HASH_HEX) {
-        (remember ? localStorage : sessionStorage)
-          .setItem(remember ? okPersistentKey : okSessionKey, "1");
+        if (remember) localStorage.setItem("ok-global", "1");
+        sessionStorage.setItem(okSessionKey, "1");
         sessionStorage.removeItem(triesKey);
         sessionStorage.removeItem(lockKey);
 
-        // Redirection finale : ajoute un param unique pour forcer le rechargement à l'ouverture
+        // Redirection forcée avec paramètre aléatoire pour éviter tout cache
         location.replace(makeCacheBustedUrl(DESTINATION_URL));
       } else {
         const tries = 1 + parseInt(sessionStorage.getItem(triesKey) || "0", 10);
@@ -97,21 +105,6 @@
         } else {
           msg.textContent = "Mot de passe incorrect.";
         }
-      }
-    });
-
-    // Petit bonus : empêche la page précédente (back) d'afficher une version cachée du dossier
-    // Quand l'utilisateur revient ici, on forcera une validation côté navigateur (pas serveur).
-    window.addEventListener('pageshow', (ev) => {
-      // Si la page est chargée depuis le cache de l'historique, on la recharge pour garantir la fraîcheur.
-      // recharge la page elle-même pour contourner tout cache local
-      if (performance.navigation.type !== performance.navigation.TYPE_RELOAD) {
-       setTimeout(() => location.reload(true), 0);
-      }
-
-      
-      if (ev.persisted) {
-        location.reload(true);
       }
     });
   </script>
