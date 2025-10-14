@@ -104,6 +104,12 @@
     // Quand l'utilisateur revient ici, on forcera une validation côté navigateur (pas serveur).
     window.addEventListener('pageshow', (ev) => {
       // Si la page est chargée depuis le cache de l'historique, on la recharge pour garantir la fraîcheur.
+      // recharge la page elle-même pour contourner tout cache local
+      if (performance.navigation.type !== performance.navigation.TYPE_RELOAD) {
+       setTimeout(() => location.reload(true), 0);
+      }
+
+      
       if (ev.persisted) {
         location.reload(true);
       }
